@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 from datetime import datetime
 from decimal import Decimal
+from sqlalchemy import extract
 
 # Carrega as variáveis de ambiente do ficheiro .env
 load_dotenv()
@@ -143,12 +144,35 @@ def create_transaction():
         db.session.rollback()
         return jsonify({'message': 'Erro ao criar transação', 'error': str(e)}), 500
 
-# Rota para LISTAR todas as transações
+# Rota para LISTAR todas as transações (com filtros)
 @app.route('/api/transactions', methods=['GET'])
 def get_transactions():
     try:
-        # Busca todas as transações, ordenadas por data descendente (mais recentes primeiro)
-        transactions = Transaction.query.order_by(Transaction.date.desc()).all()
+        # Pega os parâmetros da URL. Se não forem fornecidos, o valor é None.
+        year = request.args.get('year', type=int)
+        month = request.args.get('month', type=int)
+        category_id = request.args.get('category_id', type=int)
+        search_term = request.args.get('search', type=str)
+
+        # Começa com uma query base que busca todas as transações
+        query = Transaction.query
+
+        # Aplica os filtros à query base, um por um, se eles existirem
+        if year:
+            # A função extract() do SQLAlchemy permite filtrar por parte de uma data
+            query = query.filter(extract('year', Transaction.date) == year)
+        if month:
+            query = query.filter(extract('month', Transaction.date) == month)
+        if category_id:
+            query = query.filter(Transaction.category_id == category_id)
+        if search_term:
+            # O método .ilike() faz uma busca 'case-insensitive' (ignora maiúsculas/minúsculas)
+            # Os '%' são wildcards, significam "qualquer coisa antes ou depois do termo de busca"
+            query = query.filter(Transaction.description.ilike(f'%{search_term}%'))
+
+        # Finalmente, ordena a query (já filtrada) e executa-a com .all()
+        transactions = query.order_by(Transaction.date.desc()).all()
+
         return jsonify([transaction.to_json() for transaction in transactions]), 200
     except Exception as e:
         return jsonify({'message': 'Erro ao buscar transações', 'error': str(e)}), 500
