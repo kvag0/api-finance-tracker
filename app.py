@@ -51,6 +51,50 @@ class Transaction(db.Model):
         }
 
 # --- ROTAS DA API (Categorias) ---
+# Rota para ATUALIZAR uma transação existente
+@app.route('/api/transactions/<int:transaction_id>', methods=['PUT'])
+def update_transaction(transaction_id):
+    try:
+        # Encontra a transação ou retorna 404
+        transaction = Transaction.query.get_or_404(transaction_id)
+        data = request.get_json()
+
+        # Atualiza os campos com os novos dados, se eles forem fornecidos
+        transaction.description = data.get('description', transaction.description)
+
+        if 'amount' in data:
+            try:
+                amount = Decimal(data['amount'])
+                if amount <= 0: raise ValueError
+                transaction.amount = amount
+            except (ValueError, TypeError):
+                return jsonify({'message': 'O valor (amount) deve ser um número positivo'}), 400
+
+        if 'date' in data:
+            try:
+                transaction.date = datetime.fromisoformat(data['date'])
+            except ValueError:
+                return jsonify({'message': 'Formato de data inválido. Use AAAA-MM-DD'}), 400
+
+        if 'type' in data:
+            if data['type'] not in ['entrada', 'saída']:
+                return jsonify({'message': 'O tipo deve ser "entrada" ou "saída"'}), 400
+            transaction.type = data['type']
+
+        if 'category_id' in data:
+            category = Category.query.get(data['category_id'])
+            if not category:
+                return jsonify({'message': 'Categoria não encontrada'}), 404
+            transaction.category_id = data['category_id']
+
+        # Confirma as alterações no banco de dados
+        db.session.commit()
+
+        return jsonify(transaction.to_json()), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Erro ao atualizar transação', 'error': str(e)}), 500
 
 # Rota para CRIAR uma nova categoria
 @app.route('/api/categories', methods=['POST'])
@@ -88,7 +132,6 @@ def get_categories():
         return jsonify([category.to_json() for category in categories]), 200
     except Exception as e:
         return jsonify({'message': 'Erro ao buscar categorias', 'error': str(e)}), 500
-
 
 # Rota para CRIAR uma nova transação
 @app.route('/api/transactions', methods=['POST'])
@@ -176,6 +219,20 @@ def get_transactions():
         return jsonify([transaction.to_json() for transaction in transactions]), 200
     except Exception as e:
         return jsonify({'message': 'Erro ao buscar transações', 'error': str(e)}), 500
+
+# Rota para DELETAR uma transação
+@app.route('/api/transactions/<int:transaction_id>', methods=['DELETE'])
+def delete_transaction(transaction_id):
+    try:
+        transaction = Transaction.query.get_or_404(transaction_id)
+
+        db.session.delete(transaction)
+        db.session.commit()
+
+        return jsonify({'message': 'Transação deletada com sucesso'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Erro ao deletar transação', 'error': str(e)}), 500
 
 # --- PONTO DE ENTRADA ---
 if __name__ == '__main__':
